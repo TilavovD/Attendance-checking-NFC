@@ -1,3 +1,4 @@
+#include <gtk/gtk.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -6,90 +7,74 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <malloc.h>
 
 #define PORT 8080
 
-void* recievedCommand(void* socket_ptr) {
-    int socket_fd = (int)(intptr_t)socket_ptr;
-    char buffer[16184];     // 16kb buffer
+GtkBuilder *builder;
+int socket_fd;
 
-    while (true)
-    {
-        ssize_t recieved_amount = recv(socket_fd, buffer, 16184, 0);
-
-        if(recieved_amount == 0) {
-            break;
-        }        
-
-        if(recieved_amount > 0) {
-            buffer[recieved_amount] = 0;
-            printf("%s\n", buffer);
-        }
-    }
-
-    close(socket_fd);
-    return NULL;
-    
+// Callback function when the window is closed
+void on_main_window_destroy() {
+    close(socket_fd); // Close the socket when the window is closed
+    gtk_main_quit();
 }
 
-void listeningOnThread(int socket_fd) {
-    pthread_t id;
-    //pthread_create(&id, NULL, recievedCommand, socket_fd);
-  pthread_create(&id, NULL, recievedCommand, (void*)(intptr_t)socket_fd);
-}
+// Callback function when the button is clicked
+void on_button_clicked() {
+    GtkLabel *label = GTK_LABEL(gtk_builder_get_object(builder, "label1"));
+    gtk_label_set_text(label, "Hello, GPT-3.5!");
 
-void sendRequestToServer(int socket_fd) {
-    // testing sending simple sentences
-
-    char *line;
-    size_t line_size = 0;
-    printf("type smth to send...\n");
-
+    // Your code to send a message to the server
     char buffer[1024];
-    
-    while (true)
-    {
-        ssize_t char_count = getline(&line, &line_size, stdin);
-        line[char_count-1] = 0;
-
-        sprintf(buffer, "%s", line);
-
-        if(char_count > 0) {
-            if (strcmp(line, "exit") == 0) {
-                break;
-            }
-
-            ssize_t amount_recieved = send(socket_fd, buffer, strlen(buffer), 0);
-        } 
+    sprintf(buffer, "Hello from GTK client!");
+    ssize_t amount_sent = send(socket_fd, buffer, strlen(buffer), 0);
+    if (amount_sent < 0) {
+        perror("Error sending message to the server");
     }
-    
 }
 
-int main(int argc, char const *argv[])
-{
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    
-    if(socket_fd < 0) {
+int main(int argc, char *argv[]) {
+    gtk_init(&argc, &argv);
+
+    // Create a new GtkBuilder instance
+    builder = gtk_builder_new();
+
+    // Load the UI definition from the Glade file
+    gtk_builder_add_from_file(builder, "gui.glade", NULL);
+
+    // Connect signals to callback functions
+    gtk_builder_connect_signals(builder, NULL);
+
+    // Get the main window and show it
+    GtkWidget *main_window = GTK_WIDGET(gtk_builder_get_object(builder, "main_window"));
+    gtk_widget_show_all(main_window);
+
+    // Your code to create a socket and connect to the server
+    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (socket_fd < 0) {
         perror("Socket creation error on client side\n");
+        return -1;
     }
-    
+
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_port = htons(PORT);
-    address.sin_addr.s_addr = inet_addr(argv[1]);
+    address.sin_addr.s_addr = inet_addr("127.0.0.1"); // Replace with your server's IP address
 
-  int connect_result = connect(socket_fd, (struct sockaddr*)&address, sizeof(address));
+    int connect_result = connect(socket_fd, (struct sockaddr*)&address, sizeof(address));
 
-    if(connect_result == 0){
-        printf("Connection was successful.\n");
-    } 
+    if (connect_result != 0) {
+        perror("Connection failed.\n");
+        return -1;
+    }
 
-    listeningOnThread(socket_fd);  
+    // Start the GTK main loop
+    gtk_main();
 
-    sendRequestToServer(socket_fd);
-
+    // Clean up resources
     close(socket_fd);
+    g_object_unref(builder);
 
     return 0;
 }
